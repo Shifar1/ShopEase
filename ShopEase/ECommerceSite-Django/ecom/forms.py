@@ -13,8 +13,18 @@ class CustomerUserForm(forms.ModelForm):
         
 class CustomerForm(forms.ModelForm):
     class Meta:
-        model=models.Customer
-        fields=['address','mobile','profile_pic']
+        model = models.Customer
+        fields = ['address', 'mobile', 'profile_pic']
+
+    def clean(self):
+        cleaned_data = super().clean()
+        profile_pic = cleaned_data.get('profile_pic')
+
+        if not profile_pic:
+            # Assign a default image path relative to your MEDIA_ROOT
+            cleaned_data['profile_pic'] = 'default_profile_pic.png'
+
+        return cleaned_data
 
 class ProductForm(forms.ModelForm):
     class Meta:
