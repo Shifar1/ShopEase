@@ -225,19 +225,26 @@ def search_view(request):
 
 # any one can add product to cart, no need of signin
 def add_to_cart_view(request,pk):
+    product = models.Product.objects.get(id=pk)
+    if product.stock <= 0:
+        messages.error(request, product.name + ' is out of stock!')
+        products = models.Product.objects.all()
+        if 'product_ids' in request.COOKIES:
+            product_ids = request.COOKIES['product_ids']
+            counter = product_ids.split('|')
+            product_count_in_cart = len(set(counter))
+        else:
+            product_count_in_cart = 0
+        return render(request, 'ecom/index.html', {'products': products, 'product_count_in_cart': product_count_in_cart})
+    
     products=models.Product.objects.all()
-
-    #for cart counter, fetching products ids added by customer from cookies
     if 'product_ids' in request.COOKIES:
         product_ids = request.COOKIES['product_ids']
         counter=product_ids.split('|')
         product_count_in_cart=len(set(counter))
     else:
         product_count_in_cart=1
-
     response = render(request, 'ecom/index.html',{'products':products,'product_count_in_cart':product_count_in_cart})
-
-    #adding product id to cookies
     if 'product_ids' in request.COOKIES:
         product_ids = request.COOKIES['product_ids']
         if product_ids=="":
@@ -247,10 +254,7 @@ def add_to_cart_view(request,pk):
         response.set_cookie('product_ids', product_ids)
     else:
         response.set_cookie('product_ids', pk)
-
-    product=models.Product.objects.get(id=pk)
     messages.info(request, product.name + ' added to cart successfully!')
-
     return response
 
 
@@ -345,14 +349,12 @@ def customer_home_view(request):
 # shipment address before placing order
 @login_required(login_url='customerlogin')
 def customer_address_view(request):
-    # this is for checking whether product is present in cart or not
-    # if there is no product in cart we will not show address form
     product_in_cart=False
+    removed_products = []
     if 'product_ids' in request.COOKIES:
         product_ids = request.COOKIES['product_ids']
         if product_ids != "":
             product_in_cart=True
-    #for counter in cart
     if 'product_ids' in request.COOKIES:
         product_ids = request.COOKIES['product_ids']
         counter=product_ids.split('|')
@@ -360,17 +362,46 @@ def customer_address_view(request):
     else:
         product_count_in_cart=0
 
+    # Remove out-of-stock products from cart
+    if 'product_ids' in request.COOKIES:
+        product_ids = request.COOKIES['product_ids']
+        if product_ids != "":
+            product_id_in_cart = product_ids.split('|')
+            products = models.Product.objects.filter(id__in=product_id_in_cart)
+            in_stock_ids = []
+            for p in products:
+                if p.stock > 0:
+                    in_stock_ids.append(str(p.id))
+                else:
+                    removed_products.append(p.name)
+            # Update cookie if any product was removed
+            if removed_products:
+                new_value = '|'.join(in_stock_ids)
+                product_in_cart = bool(new_value)
+                response = render(request, 'ecom/cart.html', {
+                    'products': models.Product.objects.filter(id__in=in_stock_ids) if in_stock_ids else [],
+                    'total': sum([p.price for p in products if str(p.id) in in_stock_ids]),
+                    'product_count_in_cart': len(set(in_stock_ids)),
+                })
+                if new_value:
+                    response.set_cookie('product_ids', new_value)
+                else:
+                    response.delete_cookie('product_ids')
+                messages.warning(request, f"Removed out-of-stock products from cart: {', '.join(removed_products)}")
+                # Pass messages to template
+                from django.contrib.messages import get_messages
+                storage = get_messages(request)
+                response.context_data = response.context_data if hasattr(response, 'context_data') else {}
+                response.context_data['messages'] = storage
+                return response
+
     addressForm = forms.AddressForm()
     if request.method == 'POST':
         addressForm = forms.AddressForm(request.POST)
         if addressForm.is_valid():
-            # here we are taking address, email, mobile at time of order placement
-            # we are not taking it from customer account table because
-            # these thing can be changes
             email = addressForm.cleaned_data['Email']
             mobile=addressForm.cleaned_data['Mobile']
             address = addressForm.cleaned_data['Address']
-            #for showing total price on payment page.....accessing id from cookies then fetching  price of product from db
             total=0
             if 'product_ids' in request.COOKIES:
                 product_ids = request.COOKIES['product_ids']
@@ -379,7 +410,6 @@ def customer_address_view(request):
                     products=models.Product.objects.all().filter(id__in = product_id_in_cart)
                     for p in products:
                         total=total+p.price
-
             response = render(request, 'ecom/payment.html',{'total':total})
             response.set_cookie('email',email)
             response.set_cookie('mobile',mobile)
@@ -409,23 +439,18 @@ def payment_success_view(request):
         if product_ids != "":
             product_id_in_cart=product_ids.split('|')
             products=models.Product.objects.all().filter(id__in = product_id_in_cart)
-            # Here we get products list that will be ordered by one customer at a time
-
-    # these things can be change so accessing at the time of order...
     if 'email' in request.COOKIES:
         email=request.COOKIES['email']
     if 'mobile' in request.COOKIES:
         mobile=request.COOKIES['mobile']
     if 'address' in request.COOKIES:
         address=request.COOKIES['address']
-
-    # here we are placing number of orders as much there is a products
-    # suppose if we have 5 items in cart and we place order....so 5 rows will be created in orders table
-    # there will be lot of redundant data in orders table...but its become more complicated if we normalize it
     for product in products:
         models.Orders.objects.get_or_create(customer=customer,product=product,status='Pending',email=email,mobile=mobile,address=address)
-
-    # after order placed cookies should be deleted
+        # Reduce stock by 1
+        if product.stock > 0:
+            product.stock -= 1
+            product.save()
     response = render(request,'ecom/payment_success.html')
     response.delete_cookie('product_ids')
     response.delete_cookie('email')

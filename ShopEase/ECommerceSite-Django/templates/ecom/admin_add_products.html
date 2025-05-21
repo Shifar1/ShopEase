@@ -68,7 +68,10 @@
               <label for="">Short Description</label>
               {% render_field productForm.description class="form-control" placeholder="Description" %}
             </div>
-
+            <div class="form-group">
+              <label for="">Stock</label>
+              {% render_field productForm.stock class="form-control" placeholder="Stock" %}
+            </div>
           </div>
           <div class="col-md-6">
             <div class="form-group">
@@ -79,8 +82,6 @@
               <label for="">Product Image</label>
               {% render_field productForm.product_image class="form-control" placeholder="product_image" %}
             </div>
-
-
           </div>
         </div>
         <button type="submit" class="btnSubmit">ADD</button>

@@ -21,6 +21,7 @@ class Product(models.Model):
     product_image= models.ImageField(upload_to='product_image/',null=True,blank=True)
     price = models.PositiveIntegerField()
     description=models.CharField(max_length=40)
+    stock = models.PositiveIntegerField(default=0, help_text="Number of items in stock")
     def __str__(self):
         return self.name
 
