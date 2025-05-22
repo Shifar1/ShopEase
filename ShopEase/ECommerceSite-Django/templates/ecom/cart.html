@@ -89,9 +89,11 @@
         <td> <img src="{% static p.product_image.url %}" alt="Profile Pic" height="50px" width="50px" /></td>
         <td>$ {{p.price}}</td>
         <td>{{p.description}}</td>
-
+        {% if p.stock < 1 %}
+        <td><span style="color:red;font-weight:bold;">Out Of Stock</span></td>
+        {% else %}
         <td><a class="btn btn-danger btn-xs" href="{% url 'remove-from-cart' p.id  %}"><span class="glyphicon glyphicon-trash"></span></a></td>
-
+        {% endif %}
       </tr>
       {%else%}
       <br><br><br>
