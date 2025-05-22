@@ -226,6 +226,11 @@ def search_view(request):
 # any one can add product to cart, no need of signin
 def add_to_cart_view(request,pk):
     products=models.Product.objects.all()
+    product=models.Product.objects.get(id=pk)
+    # Check stock before adding to cart
+    if product.stock < 1:
+        messages.error(request, f"{product.name} is Out Of Stock!")
+        return render(request, 'ecom/index.html', {'products': products, 'product_count_in_cart': request.COOKIES.get('product_count_in_cart', 0)})
 
     #for cart counter, fetching products ids added by customer from cookies
     if 'product_ids' in request.COOKIES:
@@ -248,9 +253,7 @@ def add_to_cart_view(request,pk):
     else:
         response.set_cookie('product_ids', pk)
 
-    product=models.Product.objects.get(id=pk)
     messages.info(request, product.name + ' added to cart successfully!')
-
     return response
 
 
@@ -394,24 +397,25 @@ def customer_address_view(request):
 #then only this view should be accessed
 @login_required(login_url='customerlogin')
 def payment_success_view(request):
-    # Here we will place order | after successful payment
-    # we will fetch customer  mobile, address, Email
-    # we will fetch product id from cookies then respective details from db
-    # then we will create order objects and store in db
-    # after that we will delete cookies because after order placed...cart should be empty
     customer=models.Customer.objects.get(user_id=request.user.id)
     products=None
     email=None
     mobile=None
     address=None
+    out_of_stock_products = []
     if 'product_ids' in request.COOKIES:
         product_ids = request.COOKIES['product_ids']
         if product_ids != "":
             product_id_in_cart=product_ids.split('|')
             products=models.Product.objects.all().filter(id__in = product_id_in_cart)
-            # Here we get products list that will be ordered by one customer at a time
+            # Check stock for all products before placing order
+            for product in products:
+                if product.stock < 1:
+                    out_of_stock_products.append(product.name)
+            if out_of_stock_products:
+                messages.error(request, f"Out Of Stock: {', '.join(out_of_stock_products)}. Please remove them from cart.")
+                return redirect('cart')
 
-    # these things can be change so accessing at the time of order...
     if 'email' in request.COOKIES:
         email=request.COOKIES['email']
     if 'mobile' in request.COOKIES:
@@ -419,13 +423,12 @@ def payment_success_view(request):
     if 'address' in request.COOKIES:
         address=request.COOKIES['address']
 
-    # here we are placing number of orders as much there is a products
-    # suppose if we have 5 items in cart and we place order....so 5 rows will be created in orders table
-    # there will be lot of redundant data in orders table...but its become more complicated if we normalize it
+    # Place order and decrement stock
     for product in products:
         models.Orders.objects.get_or_create(customer=customer,product=product,status='Pending',email=email,mobile=mobile,address=address)
+        product.stock = max(product.stock - 1, 0)
+        product.save()
 
-    # after order placed cookies should be deleted
     response = render(request,'ecom/payment_success.html')
     response.delete_cookie('product_ids')
     response.delete_cookie('email')
@@ -494,8 +497,7 @@ def download_invoice_view(request,orderID,productID):
         'customerName':request.user,
         'customerEmail':order.email,
         'customerMobile':order.mobile,
-        'shipmentAddress':order.address,
-        'orderStatus':order.status,
+        'shipmentAddress':order.status,
 
         'productName':product.name,
         'productImage':product.product_image,
